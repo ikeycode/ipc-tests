@@ -82,6 +82,7 @@ impl ServiceListener {
     pub fn new() -> io::Result<Self> {
         let server_fd: RawFd = ServiceFds::PARENT_CONTEXT;
         let listener = unsafe { UnixListener::from(OwnedFd::from_raw_fd(server_fd)) };
+        listener.set_nonblocking(true)?;
         let (socket, _) = listener.accept()?;
 
         Ok(Self { listener, socket })

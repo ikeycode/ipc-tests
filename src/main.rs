@@ -1,8 +1,10 @@
-use std::io::{Read, Write};
+use std::io::{BufReader, Write};
 
 use clap::Parser;
 
 use ipc_tests::moss_service::{self, ServiceConnection, ServiceListener};
+use nix::unistd::getuid;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Parser)]
 #[clap(author, version, about)]
@@ -11,21 +13,50 @@ struct Args {
     server: bool,
 }
 
-fn run_server() -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Serialize, Deserialize, Debug)]
+enum SendyMessage {
+    DoThings(i8),
+    ListThePackages,
+    WhatsYourUID,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+enum RecvyMessage {
+    GotThings(String),
+    HereIsOnePackage(String),
+    HereIsYourUID(u32),
+}
+
+fn server_runner() -> Result<(), Box<dyn std::error::Error>> {
     println!("Running server");
-    let mut server = ServiceListener::new()?;
-    println!("Im running as user: {}", nix::unistd::getuid());
+    let svs = ServiceListener::new()?;
 
-    let mut buf = vec![];
-    let n = server.socket.read_to_end(&mut buf)?;
-    let client_sz = std::str::from_utf8(&buf[..n])?;
-    println!(">> server has Received: {client_sz}",);
-    eprintln!("from client:: {client_sz}");
-    server.socket.write_all(b"hey jackass\n")?;
-    server.socket.flush()?;
-    server.socket.shutdown(std::net::Shutdown::Both)?;
+    let mut buf = BufReader::new(&svs.socket);
 
-    eprintln!(">> Ending server");
+    for message in serde_json::Deserializer::from_reader(&mut buf).into_iter::<SendyMessage>() {
+        match message {
+            Ok(SendyMessage::DoThings(i)) => {
+                println!(">>> Server received: {:?}", i);
+                let reply = RecvyMessage::GotThings(format!("I got your message: {}", i));
+                serde_json::to_writer(&svs.socket, &reply)?;
+            }
+            Ok(SendyMessage::ListThePackages) => {
+                println!(">>> Server received: ListThePackages");
+                for package in &["firefox", "chromium", "libreoffice"] {
+                    let reply = RecvyMessage::HereIsOnePackage(package.to_string());
+                    serde_json::to_writer(&svs.socket, &reply)?;
+                }
+            }
+            Ok(SendyMessage::WhatsYourUID) => {
+                println!(">>> Server received: WhatsYourUID");
+                let reply = RecvyMessage::HereIsYourUID(getuid().into());
+                serde_json::to_writer(&svs.socket, &reply)?;
+            }
+            Err(e) => {
+                eprintln!("Error: {:?}", e);
+            }
+        }
+    }
 
     Ok(())
 }
@@ -33,12 +64,32 @@ fn run_server() -> Result<(), Box<dyn std::error::Error>> {
 fn run_client() -> Result<(), Box<dyn std::error::Error>> {
     let ourselves = std::env::current_exe()?.to_string_lossy().to_string();
     let mut conn = ServiceConnection::new(&ourselves, &["--server"])?;
-    conn.socket.write_all(b"hello server!")?;
+
+    let message = SendyMessage::DoThings(42);
+    serde_json::to_writer(&conn.socket, &message)?;
+    serde_json::to_writer(&conn.socket, &SendyMessage::ListThePackages)?;
+    serde_json::to_writer(&conn.socket, &SendyMessage::WhatsYourUID)?;
     conn.socket.flush()?;
     conn.socket.shutdown(std::net::Shutdown::Write)?;
-    let mut buf = vec![];
-    conn.socket.read_to_end(&mut buf)?;
-    println!("client Received: {}", std::str::from_utf8(&buf)?);
+
+    let mut buf = BufReader::new(&conn.socket);
+    for message in serde_json::Deserializer::from_reader(&mut buf).into_iter::<RecvyMessage>() {
+        match message {
+            Ok(RecvyMessage::GotThings(s)) => {
+                println!("<<< Client received: `{:?}`", s);
+            }
+            Ok(RecvyMessage::HereIsOnePackage(s)) => {
+                println!("<<< Client received package: `{:?}`", s);
+            }
+            Ok(RecvyMessage::HereIsYourUID(uid)) => {
+                println!("<<< Client received UID: `{:?}`", uid);
+            }
+            Err(e) => {
+                eprintln!("Error: {:?}", e);
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -48,8 +99,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.server {
         let log_path = "/dev/null";
         let _log_file = moss_service::service_init(log_path)?;
-        run_server()
+        server_runner()?;
     } else {
-        run_client()
+        run_client()?;
     }
+
+    Ok(())
 }
