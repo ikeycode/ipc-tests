@@ -108,6 +108,7 @@ impl ServiceConnection {
                 // client connection will fail properly.
                 let mut command = exec.command(executable, args);
                 command.fd_mappings(mappings)?;
+                command.env_remove("PKEXEC_UID");
                 let st = command.status()?;
                 std::process::exit(st.code().unwrap_or(1));
             }
