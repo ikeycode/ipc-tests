@@ -90,6 +90,8 @@ impl ServiceConnection {
         let socket_addr = identity.as_unix_address()?;
         let unix_socket = UnixListener::bind_addr(&socket_addr)?;
 
+        eprintln!("<<< setting server address to: @{:?}", identity.0);
+
         let exec = T::default();
 
         let mappings: Vec<FdMapping> = vec![FdMapping {
