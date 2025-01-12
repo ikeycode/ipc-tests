@@ -3,6 +3,7 @@ name = "privileged-ipc"
 version = "0.1.0"
 edition = "2021"
 description = "Secure IPC socket mechanism for launching privileged processes"
+license = "MPL-2.0"
 
 [dependencies]
 command-fds = { workspace = true }
