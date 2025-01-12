@@ -1,6 +1,6 @@
 # Tools API
 
-This project is part of the Serpent OS and provides IPC-encapsulated access to various tools and utilities.
+This project is part of Serpent OS and provides IPC-encapsulated access to various tools and utilities.
 
 ## Contributing
 
