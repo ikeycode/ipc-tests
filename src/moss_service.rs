@@ -90,7 +90,7 @@ impl ServiceConnection {
         let socket_addr = identity.as_unix_address()?;
         let unix_socket = UnixListener::bind_addr(&socket_addr)?;
 
-        eprintln!("<<< setting server address to: @{:?}", identity.0);
+        log::trace!("🔌 setting server address to: @{:?}", identity.0);
 
         let exec = T::default();
 
@@ -100,10 +100,13 @@ impl ServiceConnection {
         }];
 
         match unsafe { nix::unistd::fork() }? {
-            nix::unistd::ForkResult::Parent { child } => Ok(Self {
-                _child: child,
-                socket: UnixStream::connect_addr(&socket_addr)?,
-            }),
+            nix::unistd::ForkResult::Parent { child } => {
+                let socket = UnixStream::connect_addr(&socket_addr)?;
+                Ok(Self {
+                    _child: child,
+                    socket,
+                })
+            }
             nix::unistd::ForkResult::Child => {
                 // Ensure we don't leak the listener, so failed pkexec
                 // will still result in the listener being closed, and the
@@ -131,9 +134,8 @@ impl ServiceListener {
             None => DirectExecutor {}.parent_fd(),
         };
         let listener = unsafe { UnixListener::from(OwnedFd::from_raw_fd(server_fd)) };
-        let (socket, client) = listener.accept()?;
-        println!("Got client connection: {client:?}");
-
+        let (socket, _) = listener.accept()?;
+        log::trace!("🔌 accepted client connection");
         Ok(Self { listener, socket })
     }
 }
