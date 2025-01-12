@@ -2,7 +2,7 @@ use std::io::{BufReader, Write};
 
 use clap::Parser;
 
-use ipc_tests::moss_service::{self, ServiceConnection, ServiceListener};
+use ipc_tests::moss_service::{self, PkexecExecutor, ServiceConnection, ServiceListener};
 use nix::unistd::getuid;
 use serde_derive::{Deserialize, Serialize};
 
@@ -66,7 +66,7 @@ fn server_runner() -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_client() -> Result<(), Box<dyn std::error::Error>> {
     let ourselves = std::env::current_exe()?.to_string_lossy().to_string();
-    let mut conn = ServiceConnection::new(&ourselves, &["--server"])?;
+    let mut conn = ServiceConnection::new::<PkexecExecutor>(&ourselves, &["--server"])?;
 
     let message = SendyMessage::DoThings(42);
     serde_json::to_writer(&conn.socket, &message)?;
@@ -102,8 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     if args.server {
-        let log_path = "/dev/null";
-        let _log_file = moss_service::service_init(log_path)?;
+        moss_service::service_init()?;
         server_runner()?;
     } else {
         run_client()?;

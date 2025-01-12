@@ -5,14 +5,12 @@
 //! of the helper tool.
 
 use std::{
-    fs::File,
-    io,
+    env, io,
     os::{
-        fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
+        fd::{FromRawFd, OwnedFd, RawFd},
         linux::net::SocketAddrExt,
         unix::net::{SocketAddr, UnixListener, UnixStream},
     },
-    path::Path,
     process::Command,
 };
 
@@ -32,12 +30,49 @@ pub enum Error {
     Nix(#[from] nix::Error),
 }
 
-#[non_exhaustive]
-pub struct ServiceFds;
+pub trait SocketExecutor: Default {
+    fn child_fd(&self) -> i32;
+    fn parent_fd(&self) -> i32;
+    fn command(&self, executable: &str, args: &[&str]) -> Command;
+}
 
-impl ServiceFds {
-    pub const CHILD_CONTEXT: i32 = 2;
-    pub const PARENT_CONTEXT: i32 = 3;
+#[derive(Default)]
+pub struct PkexecExecutor;
+
+impl SocketExecutor for PkexecExecutor {
+    fn child_fd(&self) -> i32 {
+        2
+    }
+
+    fn parent_fd(&self) -> i32 {
+        3
+    }
+
+    fn command(&self, executable: &str, args: &[&str]) -> Command {
+        let mut command = Command::new("pkexec");
+        command.arg(executable);
+        command.args(args);
+        command
+    }
+}
+
+#[derive(Default)]
+pub struct DirectExecutor;
+
+impl SocketExecutor for DirectExecutor {
+    fn child_fd(&self) -> i32 {
+        3
+    }
+
+    fn parent_fd(&self) -> i32 {
+        3
+    }
+
+    fn command(&self, executable: &str, args: &[&str]) -> Command {
+        let mut command = Command::new(executable);
+        command.args(args);
+        command
+    }
 }
 
 /// A unique identifier for an address.
@@ -50,14 +85,16 @@ pub struct ServiceConnection {
 }
 
 impl ServiceConnection {
-    pub fn new(executable: &str, args: &[&str]) -> Result<Self, self::Error> {
+    pub fn new<T: SocketExecutor>(executable: &str, args: &[&str]) -> Result<Self, self::Error> {
         let identity = AddressIdentifier::default();
         let socket_addr = identity.as_unix_address()?;
         let unix_socket = UnixListener::bind_addr(&socket_addr)?;
 
+        let exec = T::default();
+
         let mappings: Vec<FdMapping> = vec![FdMapping {
             parent_fd: unix_socket.into(),
-            child_fd: ServiceFds::CHILD_CONTEXT,
+            child_fd: exec.child_fd(),
         }];
 
         match unsafe { nix::unistd::fork() }? {
@@ -69,9 +106,7 @@ impl ServiceConnection {
                 // Ensure we don't leak the listener, so failed pkexec
                 // will still result in the listener being closed, and the
                 // client connection will fail properly.
-                let mut command = Command::new("pkexec");
-                command.arg(executable);
-                command.args(args);
+                let mut command = exec.command(executable, args);
                 command.fd_mappings(mappings)?;
                 let st = command.status()?;
                 std::process::exit(st.code().unwrap_or(1));
@@ -88,7 +123,10 @@ pub struct ServiceListener {
 
 impl ServiceListener {
     pub fn new() -> io::Result<Self> {
-        let server_fd: RawFd = ServiceFds::PARENT_CONTEXT;
+        let server_fd: RawFd = match env::var_os("PKEXEC_UID") {
+            Some(_) => PkexecExecutor {}.parent_fd(),
+            None => DirectExecutor {}.parent_fd(),
+        };
         let listener = unsafe { UnixListener::from(OwnedFd::from_raw_fd(server_fd)) };
         let (socket, client) = listener.accept()?;
         println!("Got client connection: {client:?}");
@@ -110,11 +148,18 @@ impl AddressIdentifier {
     }
 }
 
-pub fn service_init(stderr: impl AsRef<Path>) -> io::Result<File> {
-    // TODO: Handle *non* pkexec redirections
-    nix::unistd::dup2(ServiceFds::CHILD_CONTEXT, ServiceFds::PARENT_CONTEXT)?;
-    nix::unistd::close(ServiceFds::CHILD_CONTEXT)?;
-    let file = File::create(stderr.as_ref())?;
-    nix::unistd::dup2(file.as_raw_fd(), ServiceFds::CHILD_CONTEXT)?;
-    Ok(file)
+// Handle service initialization by redirecting stderr to stdout when invoked
+// by pkexec.
+pub fn service_init() -> io::Result<()> {
+    match env::var_os("PKEXEC_UID") {
+        None => Ok(()),
+        Some(_) => {
+            // Redirect stderr to stdout
+            let exec = PkexecExecutor {};
+            nix::unistd::dup2(exec.child_fd(), exec.parent_fd())?;
+            nix::unistd::close(exec.child_fd())?;
+            nix::unistd::dup2(1, exec.child_fd())?;
+            Ok(())
+        }
+    }
 }
