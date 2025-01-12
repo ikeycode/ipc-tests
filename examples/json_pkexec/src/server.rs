@@ -1,11 +1,13 @@
+// SPDX-FileCopyrightText: Copyright © 2020-2025 Serpent OS Developers
+//
+// SPDX-License-Identifier: MPL-2.0
+
 use std::io::{BufReader, Write};
 
 use nix::unistd::getuid;
+use privileged_ipc::ServiceListener;
 
-use crate::{
-    api::{Package, RecvyMessage, SendyMessage},
-    moss_service::ServiceListener,
-};
+use crate::api::{Package, RecvyMessage, SendyMessage};
 
 /// Run the server component
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {

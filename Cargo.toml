@@ -1,5 +1,8 @@
 [workspace]
-members = ["privileged-ipc"]
+members = [
+    "privileged-ipc",
+    "examples/*",
+]
 default-members = [
     "privileged-ipc"
 ]

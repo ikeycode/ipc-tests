@@ -1,5 +1,8 @@
+// SPDX-FileCopyrightText: Copyright © 2020-2025 Serpent OS Developers
+//
+// SPDX-License-Identifier: MPL-2.0
+
 use clap::Parser;
-use privileged_ipc::{client, moss_service, server};
 
 /// CLI arguments
 #[derive(Parser)]
@@ -16,14 +19,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter_level(log::LevelFilter::Trace)
         .init();
 
-    moss_service::service_init()?;
+    privileged_ipc::service_init()?;
 
     let args = Args::parse();
 
     if args.server {
-        server::run()?;
+        json_pkexec::server::run()?;
     } else {
-        client::run()?;
+        json_pkexec::client::run()?;
     }
 
     Ok(())
