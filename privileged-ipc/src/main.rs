@@ -1,5 +1,5 @@
 use clap::Parser;
-use ipc_tests::{client, moss_service, server};
+use privileged_ipc::{client, moss_service, server};
 
 /// CLI arguments
 #[derive(Parser)]

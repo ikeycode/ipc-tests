@@ -188,23 +188,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
-name = "ipc-tests"
-version = "0.1.0"
-dependencies = [
- "clap",
- "colored_json",
- "command-fds",
- "log",
- "nix 0.29.0",
- "pretty_env_logger",
- "serde",
- "serde_derive",
- "serde_json",
- "thiserror 2.0.11",
- "uuid",
-]
-
-[[package]]
 name = "is-terminal"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -279,10 +262,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "privileged-ipc"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "colored_json",
+ "command-fds",
+ "log",
+ "nix 0.29.0",
+ "pretty_env_logger",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "thiserror 2.0.11",
+ "uuid",
+]
+
+[[package]]
 name = "proc-macro2"
-version = "1.0.92"
+version = "1.0.93"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37d3544b3f2748c54e147655edb5025752e2303145b5aefb3c3ea2c78b973bb0"
+checksum = "60946a68e5f9d28b0dc1c21bb8a97ee7d018a8b322fa57838ba31cc878e22d99"
 dependencies = [
  "unicode-ident",
 ]
