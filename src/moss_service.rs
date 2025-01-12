@@ -13,10 +13,11 @@ use std::{
         unix::net::{SocketAddr, UnixListener, UnixStream},
     },
     path::Path,
-    process::{Child, Command},
+    process::Command,
 };
 
 use command_fds::{CommandFdExt, FdMapping, FdMappingCollision};
+use nix::unistd::Pid;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -26,6 +27,9 @@ pub enum Error {
 
     #[error("mapping collision@ {0}")]
     MappingCollision(#[from] FdMappingCollision),
+
+    #[error("Failed to fork: {0}")]
+    Nix(#[from] nix::Error),
 }
 
 #[non_exhaustive]
@@ -41,9 +45,8 @@ struct AddressIdentifier(uuid::Uuid);
 
 /// A connection to a privileged service.
 pub struct ServiceConnection {
-    pub child: Child,
     pub socket: UnixStream,
-    _command: Command,
+    _child: Pid,
 }
 
 impl ServiceConnection {
@@ -56,19 +59,24 @@ impl ServiceConnection {
             parent_fd: unix_socket.into(),
             child_fd: ServiceFds::CHILD_CONTEXT,
         }];
-        let mut command = Command::new("pkexec");
-        command.arg(executable);
-        command.args(args);
-        command.fd_mappings(mappings)?;
-        let child = command.spawn()?;
 
-        let socket = UnixStream::connect_addr(&socket_addr)?;
-
-        Ok(ServiceConnection {
-            child,
-            socket,
-            _command: command,
-        })
+        match unsafe { nix::unistd::fork() }? {
+            nix::unistd::ForkResult::Parent { child } => Ok(Self {
+                _child: child,
+                socket: UnixStream::connect_addr(&socket_addr)?,
+            }),
+            nix::unistd::ForkResult::Child => {
+                // Ensure we don't leak the listener, so failed pkexec
+                // will still result in the listener being closed, and the
+                // client connection will fail properly.
+                let mut command = Command::new("pkexec");
+                command.arg(executable);
+                command.args(args);
+                command.fd_mappings(mappings)?;
+                let st = command.status()?;
+                std::process::exit(st.code().unwrap_or(1));
+            }
+        }
     }
 }
 
@@ -82,8 +90,8 @@ impl ServiceListener {
     pub fn new() -> io::Result<Self> {
         let server_fd: RawFd = ServiceFds::PARENT_CONTEXT;
         let listener = unsafe { UnixListener::from(OwnedFd::from_raw_fd(server_fd)) };
-        listener.set_nonblocking(true)?;
-        let (socket, _) = listener.accept()?;
+        let (socket, client) = listener.accept()?;
+        println!("Got client connection: {client:?}");
 
         Ok(Self { listener, socket })
     }
@@ -103,6 +111,7 @@ impl AddressIdentifier {
 }
 
 pub fn service_init(stderr: impl AsRef<Path>) -> io::Result<File> {
+    // TODO: Handle *non* pkexec redirections
     nix::unistd::dup2(ServiceFds::CHILD_CONTEXT, ServiceFds::PARENT_CONTEXT)?;
     nix::unistd::close(ServiceFds::CHILD_CONTEXT)?;
     let file = File::create(stderr.as_ref())?;

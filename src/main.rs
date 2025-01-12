@@ -29,9 +29,9 @@ enum RecvyMessage {
 
 fn server_runner() -> Result<(), Box<dyn std::error::Error>> {
     println!("Running server");
-    let svs = ServiceListener::new()?;
+    let mut svs = ServiceListener::new()?;
 
-    let mut buf = BufReader::new(&svs.socket);
+    let mut buf = BufReader::new(svs.socket.try_clone()?);
 
     for message in serde_json::Deserializer::from_reader(&mut buf).into_iter::<SendyMessage>() {
         match message {
@@ -56,7 +56,10 @@ fn server_runner() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("Error: {:?}", e);
             }
         }
+        svs.socket.flush()?;
     }
+
+    svs.socket.shutdown(std::net::Shutdown::Both)?;
 
     Ok(())
 }
@@ -89,6 +92,8 @@ fn run_client() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
+    conn.socket.shutdown(std::net::Shutdown::Read)?;
 
     Ok(())
 }
