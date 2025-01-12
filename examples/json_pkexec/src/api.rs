@@ -82,6 +82,7 @@ pub enum RecvyMessage {
     GotThings(String),
     /// Response containing a single package's metadata
     HereIsOnePackage(Package),
+    EndOfPackages,
     /// Response containing the server process's user ID (should be 0/root)
     HereIsYourUID(u32),
 }

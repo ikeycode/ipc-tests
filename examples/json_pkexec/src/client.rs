@@ -2,38 +2,35 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use std::io::{BufReader, Write};
-
-use privileged_ipc::{PkexecExecutor, ServiceConnection};
+use privileged_ipc::{IpcClient, PkexecExecutor};
 
 use crate::api::{RecvyMessage, SendyMessage};
 
 /// Example client implementation demonstrating communication with a privileged server
 ///
 /// This function shows how to:
-/// - Establish a privileged connection using `ServiceConnection`
+/// - Establish a privileged connection using `IpcClient`
 /// - Send multiple serialized messages to the server
-/// - Handle responses asynchronously
-/// - Proper connection shutdown
+/// - Handle responses asynchronously using type-safe message types
+/// - Proper error handling with the IpcError type
 ///
 /// # Errors
 ///
-/// Returns a boxed error if any I/O or serialization operations fail
+/// Returns a boxed error if any IPC operations fail
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let ourselves = std::env::current_exe()?.to_string_lossy().to_string();
-    let mut conn = ServiceConnection::new::<PkexecExecutor>(&ourselves, &["--server"])?;
+    let mut conn =
+        IpcClient::<SendyMessage, RecvyMessage>::new::<PkexecExecutor>(&ourselves, &["--server"])?;
 
     log::info!("🚀 Sending messages to server...");
-    let message = SendyMessage::DoThings(42);
-    serde_json::to_writer(&conn.socket, &message)?;
-    serde_json::to_writer(&conn.socket, &SendyMessage::ListThePackages)?;
-    serde_json::to_writer(&conn.socket, &SendyMessage::WhatsYourUID)?;
-    conn.socket.flush()?;
-    conn.socket.shutdown(std::net::Shutdown::Write)?;
+    conn.send(&SendyMessage::DoThings(42))?;
+    conn.send(&SendyMessage::ListThePackages)?;
+    conn.send(&SendyMessage::WhatsYourUID)?;
+
+    conn.shutdown(std::net::Shutdown::Write)?;
 
     log::info!("⏳ Waiting for server responses...");
-    let mut buf = BufReader::new(&conn.socket);
-    for message in serde_json::Deserializer::from_reader(&mut buf).into_iter::<RecvyMessage>() {
+    for message in conn.incoming()? {
         match message {
             Ok(RecvyMessage::GotThings(s)) => {
                 log::info!("📬 Received: {}", s);
@@ -44,6 +41,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     .map(|v| log::trace!("{}", v))
                     .unwrap_or_else(|e| log::error!("JSON error: {}", e));
             }
+            Ok(RecvyMessage::EndOfPackages) => break,
             Ok(RecvyMessage::HereIsYourUID(uid)) => {
                 log::info!("🎫 Received UID: {}", uid);
             }
@@ -52,8 +50,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-
-    conn.socket.shutdown(std::net::Shutdown::Read)?;
 
     Ok(())
 }

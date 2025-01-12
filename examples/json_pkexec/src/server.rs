@@ -2,10 +2,8 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use std::io::{BufReader, Write};
-
 use nix::unistd::getuid;
-use privileged_ipc::ServiceListener;
+use privileged_ipc::{IpcError, IpcServer};
 
 use crate::api::{Package, RecvyMessage, SendyMessage};
 
@@ -13,7 +11,7 @@ use crate::api::{Package, RecvyMessage, SendyMessage};
 ///
 /// This server demonstrates the core functionality of the crate by:
 ///
-/// - Setting up a privileged service listener
+/// - Setting up a privileged IPC server
 /// - Processing incoming JSON messages
 /// - Responding to various message types:
 ///   - Basic string messages (`DoThings`)
@@ -23,47 +21,41 @@ use crate::api::{Package, RecvyMessage, SendyMessage};
 /// # Errors
 ///
 /// Returns an error if:
-/// - Service listener creation fails
-/// - Socket operations fail
-/// - JSON serialization/deserialization fails
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+/// - Server creation fails
+/// - Connection handling fails
+/// - Message processing fails
+pub fn run() -> Result<(), IpcError> {
     log::info!("🚀 Starting server...");
-    let svs = ServiceListener::new()?;
+    let server = IpcServer::<RecvyMessage, SendyMessage>::new()?;
 
-    let (mut socket, _) = svs.accept()?;
+    let mut connection = server.accept()?;
     log::trace!("🔌 accepted client connection");
 
-    let mut buf = BufReader::new(socket.try_clone()?);
+    let mut incoming = connection.incoming()?;
 
-    for message in serde_json::Deserializer::from_reader(&mut buf).into_iter::<SendyMessage>() {
-        match message {
-            Ok(SendyMessage::DoThings(i)) => {
+    while let Some(message) = incoming.next() {
+        match message? {
+            SendyMessage::DoThings(i) => {
                 log::info!("📬 Received: {:?}", i);
                 let reply = RecvyMessage::GotThings(format!("I got your message: {}", i));
-                serde_json::to_writer(&socket, &reply)?;
+                connection.send(&reply)?;
             }
-            Ok(SendyMessage::ListThePackages) => {
+            SendyMessage::ListThePackages => {
                 log::info!("📦 Received: ListThePackages");
-                Package::get_sample_packages()
-                    .into_iter()
-                    .map(RecvyMessage::HereIsOnePackage)
-                    .for_each(|reply| {
-                        serde_json::to_writer(&socket, &reply).unwrap();
-                    });
+                for package in Package::get_sample_packages() {
+                    connection.send(&RecvyMessage::HereIsOnePackage(package))?;
+                }
+                connection.send(&RecvyMessage::EndOfPackages)?;
             }
-            Ok(SendyMessage::WhatsYourUID) => {
+            SendyMessage::WhatsYourUID => {
                 log::info!("🔑 Received: WhatsYourUID");
                 let reply = RecvyMessage::HereIsYourUID(getuid().into());
-                serde_json::to_writer(&socket, &reply)?;
-            }
-            Err(e) => {
-                log::error!("💥 Error: {:?}", e);
+                connection.send(&reply)?;
             }
         }
-        socket.flush()?;
     }
 
-    socket.shutdown(std::net::Shutdown::Both)?;
+    connection.shutdown(std::net::Shutdown::Both)?;
 
     Ok(())
 }
