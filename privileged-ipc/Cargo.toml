@@ -11,3 +11,5 @@ log = { workspace = true }
 nix = { workspace = true, features = ["fs", "user", "process"] }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+serde.workspace = true
+serde_json.workspace = true

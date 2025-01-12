@@ -8,7 +8,10 @@
 //! with support for both direct execution and privilege escalation via pkexec.
 
 use std::{
-    env, io,
+    env,
+    io::{self, Write},
+    net::Shutdown,
+    ops::DerefMut,
     os::{
         fd::{FromRawFd, OwnedFd, RawFd},
         linux::net::SocketAddrExt,
@@ -19,6 +22,7 @@ use std::{
 
 use command_fds::{CommandFdExt, FdMapping, FdMappingCollision};
 use nix::unistd::Pid;
+use serde_json::de::IoRead;
 use std::ops::Deref;
 use thiserror::Error;
 
@@ -187,5 +191,171 @@ pub fn service_init() -> io::Result<()> {
             nix::unistd::dup2(1, exec.child_fd())?;
             Ok(())
         }
+    }
+}
+/// Error types for IPC operations
+#[derive(Debug, Error)]
+pub enum IpcError {
+    #[error("IO error: {0}")]
+    Io(#[from] io::Error),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("Privileged IPC error: {0}")]
+    Privileged(#[from] Error),
+    #[error("Connection closed")]
+    ConnectionClosed,
+}
+
+/// A type-safe IPC connection for sending and receiving messages
+pub struct IpcConnection<S, R> {
+    connection: ServiceConnection,
+    _phantom: std::marker::PhantomData<(S, R)>,
+}
+
+impl<S, R> IpcConnection<S, R>
+where
+    S: serde::Serialize,
+    R: serde::de::DeserializeOwned,
+{
+    /// Creates a new IPC connection from an existing ServiceConnection
+    pub fn new(connection: ServiceConnection) -> Self {
+        Self {
+            connection,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Sends a message over the connection
+    pub fn send(&mut self, message: &S) -> Result<(), IpcError> {
+        match serde_json::to_writer(&self.connection.socket, message) {
+            Ok(_) => {
+                // Try to flush, but handle broken pipe gracefully
+                match self.connection.socket.flush() {
+                    Ok(_) => Ok(()),
+                    Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+                        Err(IpcError::ConnectionClosed)
+                    }
+                    Err(e) => Err(IpcError::Io(e)),
+                }
+            }
+            Err(e) if e.is_io() && e.io_error_kind() == Some(std::io::ErrorKind::BrokenPipe) => {
+                Err(IpcError::ConnectionClosed)
+            }
+            Err(e) => Err(IpcError::Json(e)),
+        }
+    }
+
+    /// Returns an iterator over incoming messages
+    pub fn incoming(&mut self) -> Result<IpcMessageIterator<R>, IpcError> {
+        let reader = std::io::BufReader::new(self.connection.socket.try_clone()?);
+        Ok(IpcMessageIterator {
+            deserializer: serde_json::Deserializer::from_reader(reader),
+            eof: false,
+            _phantom: std::marker::PhantomData,
+        })
+    }
+
+    /// Shuts down the connection
+    pub fn shutdown(&mut self, how: Shutdown) -> Result<(), IpcError> {
+        self.connection.socket.shutdown(how)?;
+        Ok(())
+    }
+}
+
+/// Iterator over incoming IPC messages
+pub struct IpcMessageIterator<R> {
+    deserializer: serde_json::Deserializer<IoRead<std::io::BufReader<UnixStream>>>,
+    eof: bool,
+    _phantom: std::marker::PhantomData<R>,
+}
+
+impl<R: serde::de::DeserializeOwned> Iterator for IpcMessageIterator<R> {
+    type Item = Result<R, IpcError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.eof {
+            return None;
+        }
+
+        match R::deserialize(&mut self.deserializer) {
+            Ok(msg) => Some(Ok(msg)),
+            Err(e) => {
+                // Handle both EOF and broken pipe/connection reset errors
+                if e.is_eof()
+                    || e.io_error_kind() == Some(std::io::ErrorKind::BrokenPipe)
+                    || e.io_error_kind() == Some(std::io::ErrorKind::ConnectionReset)
+                    || e.io_error_kind() == Some(std::io::ErrorKind::UnexpectedEof)
+                {
+                    self.eof = true;
+                    None
+                } else {
+                    Some(Err(IpcError::Json(e)))
+                }
+            }
+        }
+    }
+}
+
+/// A type-safe IPC server that listens for connections
+pub struct IpcServer<S, R> {
+    listener: ServiceListener,
+    _phantom: std::marker::PhantomData<(S, R)>,
+}
+
+impl<S, R> IpcServer<S, R>
+where
+    S: serde::Serialize,
+    R: serde::de::DeserializeOwned,
+{
+    /// Creates a new IPC server
+    pub fn new() -> Result<Self, IpcError> {
+        Ok(Self {
+            listener: ServiceListener::new()?,
+            _phantom: std::marker::PhantomData,
+        })
+    }
+
+    /// Accepts a new client connection
+    pub fn accept(&self) -> Result<IpcConnection<S, R>, IpcError> {
+        let (socket, _) = self.listener.accept()?;
+        let connection = ServiceConnection {
+            socket,
+            _child: nix::unistd::Pid::from_raw(0), // No child process for server side
+        };
+        Ok(IpcConnection::new(connection))
+    }
+}
+
+/// A type-safe IPC client that connects to a server
+pub struct IpcClient<S, R> {
+    connection: IpcConnection<S, R>,
+    _phantom: std::marker::PhantomData<(S, R)>,
+}
+impl<S, R> IpcClient<S, R>
+where
+    S: serde::Serialize,
+    R: serde::de::DeserializeOwned,
+{
+    /// Creates a new IPC client connection using the specified executor
+    pub fn new<T: SocketExecutor>(executable: &str, args: &[&str]) -> Result<Self, IpcError> {
+        let connection = ServiceConnection::new::<T>(executable, args)?;
+        Ok(Self {
+            connection: IpcConnection::new(connection),
+            _phantom: std::marker::PhantomData,
+        })
+    }
+}
+
+impl<S, R> DerefMut for IpcClient<S, R> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.connection
+    }
+}
+
+impl<S, R> Deref for IpcClient<S, R> {
+    type Target = IpcConnection<S, R>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.connection
     }
 }

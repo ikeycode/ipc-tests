@@ -283,6 +283,8 @@ dependencies = [
  "command-fds",
  "log",
  "nix 0.29.0",
+ "serde",
+ "serde_json",
  "thiserror 2.0.11",
  "uuid",
 ]
