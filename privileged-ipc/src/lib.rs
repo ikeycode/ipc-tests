@@ -19,6 +19,7 @@ use std::{
 
 use command_fds::{CommandFdExt, FdMapping, FdMappingCollision};
 use nix::unistd::Pid;
+use std::ops::Deref;
 use thiserror::Error;
 
 /// Errors that can occur when working with privileged services
@@ -139,12 +140,7 @@ impl ServiceConnection {
 }
 
 /// An activated service listener that accepts connections from clients
-pub struct ServiceListener {
-    /// The Unix domain socket listener
-    pub listener: UnixListener,
-    /// The accepted client connection
-    pub socket: UnixStream,
-}
+pub struct ServiceListener(pub UnixListener);
 
 impl ServiceListener {
     /// Creates a new service listener using the appropriate executor
@@ -154,9 +150,15 @@ impl ServiceListener {
             None => DirectExecutor {}.parent_fd(),
         };
         let listener = unsafe { UnixListener::from(OwnedFd::from_raw_fd(server_fd)) };
-        let (socket, _) = listener.accept()?;
-        log::trace!("🔌 accepted client connection");
-        Ok(Self { listener, socket })
+        Ok(ServiceListener(listener))
+    }
+}
+
+impl Deref for ServiceListener {
+    type Target = UnixListener;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
