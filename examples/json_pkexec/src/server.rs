@@ -9,7 +9,23 @@ use privileged_ipc::ServiceListener;
 
 use crate::api::{Package, RecvyMessage, SendyMessage};
 
-/// Run the server component
+/// Example server implementation showcasing privileged IPC communication
+///
+/// This server demonstrates the core functionality of the crate by:
+///
+/// - Setting up a privileged service listener
+/// - Processing incoming JSON messages
+/// - Responding to various message types:
+///   - Basic string messages (`DoThings`)
+///   - Package listing requests (`ListThePackages`)
+///   - System information queries (`WhatsYourUID`)
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Service listener creation fails
+/// - Socket operations fail
+/// - JSON serialization/deserialization fails
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("🚀 Starting server...");
     let mut svs = ServiceListener::new()?;

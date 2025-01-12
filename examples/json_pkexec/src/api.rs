@@ -4,19 +4,29 @@
 
 use serde_derive::{Deserialize, Serialize};
 
+/// Represents a software package with metadata
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Package {
+    /// Name of the package
     pub name: String,
+    /// Version string of the package
     pub version: String,
+    /// Description of what the package does
     pub description: String,
+    /// Download size in bytes
     pub size: u64,
+    /// Installed size in bytes
     pub installed_size: u64,
+    /// Target architecture (e.g. "x86_64")
     pub arch: String,
+    /// Homepage or project URL
     pub url: String,
+    /// License identifier (e.g. "GPL-3.0")
     pub license: String,
 }
 
 impl Package {
+    /// Returns a vector of sample package instances for testing/demo purposes
     pub fn get_sample_packages() -> Vec<Package> {
         vec![
             Package {
@@ -53,24 +63,25 @@ impl Package {
     }
 }
 
-/// Messages sent from client to server
+/// Messages that can be sent from the client to the privileged server process.
+/// Uses the privileged-ipc crate to handle privilege escalation via polkit.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SendyMessage {
-    /// Do some things with the given integer value
+    /// Request to perform some operation with the given integer value
     DoThings(i8),
-    /// Request list of available packages
+    /// Request a list of all available software packages
     ListThePackages,
-    /// Query the server's UID
+    /// Query the server process's user ID to verify privilege escalation
     WhatsYourUID,
 }
 
-/// Messages sent from server to client
+/// Messages that can be sent from the privileged server process back to the client
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RecvyMessage {
-    /// Response with processed result string
+    /// Response containing the result of DoThings operation
     GotThings(String),
-    /// Response with a single package name
+    /// Response containing a single package's metadata
     HereIsOnePackage(Package),
-    /// Response with the server's UID
+    /// Response containing the server process's user ID (should be 0/root)
     HereIsYourUID(u32),
 }

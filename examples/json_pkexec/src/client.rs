@@ -8,7 +8,17 @@ use privileged_ipc::{PkexecExecutor, ServiceConnection};
 
 use crate::api::{RecvyMessage, SendyMessage};
 
-/// Run the client component
+/// Example client implementation demonstrating communication with a privileged server
+///
+/// This function shows how to:
+/// - Establish a privileged connection using `ServiceConnection`
+/// - Send multiple serialized messages to the server
+/// - Handle responses asynchronously
+/// - Proper connection shutdown
+///
+/// # Errors
+///
+/// Returns a boxed error if any I/O or serialization operations fail
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let ourselves = std::env::current_exe()?.to_string_lossy().to_string();
     let mut conn = ServiceConnection::new::<PkexecExecutor>(&ourselves, &["--server"])?;
