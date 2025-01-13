@@ -1,10 +1,12 @@
 [workspace]
 members = [
     "privileged-ipc",
+    "tools-api",
     "examples/*",
 ]
 default-members = [
-    "privileged-ipc"
+    "privileged-ipc",
+    "tools-api"
 ]
 resolver = "2"
 

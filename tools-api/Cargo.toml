@@ -1,0 +1,11 @@
+[package]
+name = "tools-api"
+version = "0.1.0"
+edition = "2021"
+description = "IPC APIs to interact with Serpent OS tools"
+license = "MPL-2.0"
+
+[dependencies]
+serde.workspace = true
+serde_derive.workspace = true
+privileged-ipc = { path = "../privileged-ipc" }
