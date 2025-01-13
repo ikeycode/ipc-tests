@@ -6,7 +6,7 @@ use privileged_ipc::{DirectExecutor, IpcClient, IpcError, PkexecExecutor};
 use serde_derive::{Deserialize, Serialize};
 
 /// Basic request types for moss IPC
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum Request {
     /// Ping request to test connection
@@ -14,7 +14,7 @@ pub enum Request {
 }
 
 /// Basic response types for moss IPC
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum Response {
     /// Pong response to ping
