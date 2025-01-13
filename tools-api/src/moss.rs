@@ -31,15 +31,25 @@ pub struct MossClient {
 impl MossClient {
     /// Creates a new MossClient with privilege escalation
     pub fn new_privileged() -> Result<Self, IpcError> {
+        Self::new_privileged_with_path("/usr/bin/moss")
+    }
+
+    /// Creates a new MossClient with privilege escalation and custom moss path
+    pub fn new_privileged_with_path(moss_path: &str) -> Result<Self, IpcError> {
         Ok(Self {
-            client: IpcClient::new::<PkexecExecutor>("/usr/bin/moss", &["ipc"])?,
+            client: IpcClient::new::<PkexecExecutor>(moss_path, &["ipc"])?,
         })
     }
 
     /// Creates a new MossClient without privilege escalation
     pub fn new_direct() -> Result<Self, IpcError> {
+        Self::new_direct_with_path("/usr/bin/moss")
+    }
+
+    /// Creates a new MossClient without privilege escalation and custom moss path
+    pub fn new_direct_with_path(moss_path: &str) -> Result<Self, IpcError> {
         Ok(Self {
-            client: IpcClient::new::<DirectExecutor>("/usr/bin/moss", &["ipc"])?,
+            client: IpcClient::new::<DirectExecutor>(moss_path, &["ipc"])?,
         })
     }
 
